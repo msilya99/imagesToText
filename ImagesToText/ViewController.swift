@@ -11,7 +11,6 @@ class ViewController: UIViewController {
     private let defaults = UserDefaults.standard
     private var images: [UIImage] = []
     private var textRecognitionRequest: VNRecognizeTextRequest?
-    private let recognitionGroup: DispatchGroup = .init()
     private var recognizedTexts: [String] = []
 
     private lazy var uploadImagesButton: Button = {
@@ -65,7 +64,9 @@ class ViewController: UIViewController {
 
     @objc private func getTextButtonActtion() {
         startLoader()
-        startTextRecognition()
+        defaults[.isNewImagesUploaded] == false
+        ? saveTextsToFile()
+        : performRequestsInfNeeded()
     }
 
     @objc private func openImagePicker() {
@@ -77,15 +78,7 @@ class ViewController: UIViewController {
         present(pickerViewController, animated: true)
     }
 
-    private func startTextRecognition() {
-        if defaults[.isNewImagesUploaded] == false {
-            saveTextsToFile()
-        } else {
-            images.forEach(performRecognitionRequestIfCan(on:))
-        }
-    }
-
-    private func saveTextsToFile() {
+    @MainActor private func saveTextsToFile() {
         if defaults[.isNewImagesUploaded] == true {
             for imageStrings in recognizedTexts {
                 fileHelper.saveTextToFile(textToAdd: imageStrings)
@@ -119,6 +112,7 @@ class ViewController: UIViewController {
     }
 }
 
+// Uploading images from picker
 extension ViewController: PHPickerViewControllerDelegate {
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         Task {
@@ -154,17 +148,18 @@ extension ViewController: PHPickerViewControllerDelegate {
     }
 }
 
+// Text recognition.
 extension ViewController {
     private func createTextRecognitionRequest() {
         textRecognitionRequest = VNRecognizeTextRequest { [weak self] (request, error) in
-            // Get the recognized text
             guard let observations = request.results as? [VNRecognizedTextObservation] else {
-                self?.recognitionGroup.leave()
+                self?.performRequestsInfNeeded()
                 return
             }
-            let text = observations.compactMap({ $0.topCandidates(1).first?.string }).joined(separator: " ")
+
+            let text = observations.compactMap({ $0.topCandidates(1).first?.string }).joined(separator: "\n")
             self?.recognizedTexts.append(text)
-            self?.recognitionGroup.leave()
+            self?.performRequestsInfNeeded()
         }
 
         textRecognitionRequest?.recognitionLevel = .accurate
@@ -172,13 +167,17 @@ extension ViewController {
 
     private func performRecognitionRequestIfCan(on imageForRecognition: UIImage) {
         guard let image = imageForRecognition.cgImage, let textRecognitionRequest = textRecognitionRequest else { return }
-        recognitionGroup.enter()
-        // TODO: - синхронизировать порядок сохранения в файл
-        Task {
+        DispatchQueue.global().sync {
             let handler = VNImageRequestHandler(cgImage: image, options: [:])
             try? handler.perform([textRecognitionRequest])
         }
+    }
 
-        recognitionGroup.notify(queue: .main) { [weak self] in self?.saveTextsToFile() }
+    private func performRequestsInfNeeded() {
+        Task {
+            images.first != nil
+            ? performRecognitionRequestIfCan(on: images.removeFirst())
+            : saveTextsToFile()
+        }
     }
 }
