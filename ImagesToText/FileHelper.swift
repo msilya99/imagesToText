@@ -4,7 +4,7 @@ final class FileHelper {
     private let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
 
     func saveTextToFile(fileName: String = AppConstants.fileName,
-                        textToAdd: String) async {
+                        textToAdd: String) {
         guard let documentsURL = documentsURL else { return }
         let filePath = documentsURL.appendingPathComponent(fileName)
 

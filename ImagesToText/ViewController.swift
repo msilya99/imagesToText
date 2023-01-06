@@ -1,6 +1,7 @@
 
 import UIKit
 import PhotosUI
+import Vision
 
 class ViewController: UIViewController {
 
@@ -9,11 +10,13 @@ class ViewController: UIViewController {
     private let fileHelper: FileHelper = .init()
     private let defaults = UserDefaults.standard
     private var images: [UIImage] = []
-    private var group = DispatchGroup()
+    private var textRecognitionRequest: VNRecognizeTextRequest?
+    private let recognitionGroup: DispatchGroup = .init()
+    private var recognizedTexts: [String] = []
 
-    private lazy var startScanningButton: Button = {
+    private lazy var uploadImagesButton: Button = {
         let button = Button(title: "Upload images")
-        button.addTarget(self, action: #selector(startScanningAction), for: .touchUpInside)
+        button.addTarget(self, action: #selector(openImagePicker), for: .touchUpInside)
         return button
     }()
 
@@ -35,10 +38,11 @@ class ViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
-        view.addSubview(startScanningButton)
+        view.addSubview(uploadImagesButton)
         view.addSubview(getTextButton)
         view.addSubview(loader)
         makeConstraints()
+        createTextRecognitionRequest()
     }
 
     private func makeConstraints() {
@@ -46,12 +50,12 @@ class ViewController: UIViewController {
             loader.centerYAnchor.constraint(equalTo: view.centerYAnchor),
             loader.centerXAnchor.constraint(equalTo: view.centerXAnchor),
 
-            startScanningButton.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            startScanningButton.leftAnchor.constraint(equalTo: view.leftAnchor, constant: 24),
-            startScanningButton.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -24),
-            startScanningButton.heightAnchor.constraint(equalToConstant: 60),
+            uploadImagesButton.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            uploadImagesButton.leftAnchor.constraint(equalTo: view.leftAnchor, constant: 24),
+            uploadImagesButton.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -24),
+            uploadImagesButton.heightAnchor.constraint(equalToConstant: 60),
 
-            getTextButton.topAnchor.constraint(equalTo: startScanningButton.bottomAnchor, constant: 32),
+            getTextButton.topAnchor.constraint(equalTo: uploadImagesButton.bottomAnchor, constant: 32),
             getTextButton.leftAnchor.constraint(equalTo: view.leftAnchor, constant: 24),
             getTextButton.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -24),
             getTextButton.bottomAnchor.constraint(lessThanOrEqualTo: view.bottomAnchor),
@@ -59,18 +63,12 @@ class ViewController: UIViewController {
         ])
     }
 
-    @objc private func startScanningAction() {
-        images = []
-        openImagePicker()
-    }
-
     @objc private func getTextButtonActtion() {
         startLoader()
-        let lotOfStrings = ["One", "Two", "Three", "Four", "Five"]
-        saveTextsToFile(lotOfStrings)
+        startTextRecognition()
     }
 
-    private func openImagePicker() {
+    @objc private func openImagePicker() {
         var config = PHPickerConfiguration()
         config.selectionLimit = 0
         config.filter = .any(of: [.images, .livePhotos])
@@ -79,17 +77,26 @@ class ViewController: UIViewController {
         present(pickerViewController, animated: true)
     }
 
-    private func saveTextsToFile(_ texts: [String]) {
-        Task {
-            if defaults[.isNewImagesUploaded] == true {
-                for imageStrings in texts { await fileHelper.saveTextToFile(textToAdd: imageStrings) }
-            }
-
-            fileHelper.export()
-            defaults[.isContentExist] = true
-            defaults[.isNewImagesUploaded] = false
-            stopLoader()
+    private func startTextRecognition() {
+        if defaults[.isNewImagesUploaded] == false {
+            saveTextsToFile()
+        } else {
+            images.forEach(performRecognitionRequestIfCan(on:))
         }
+    }
+
+    private func saveTextsToFile() {
+        if defaults[.isNewImagesUploaded] == true {
+            for imageStrings in recognizedTexts {
+                fileHelper.saveTextToFile(textToAdd: imageStrings)
+            }
+            reset()
+        }
+
+        fileHelper.export()
+        defaults[.isContentExist] = true
+        defaults[.isNewImagesUploaded] = false
+        stopLoader()
     }
 
     // MARK: - loader actions
@@ -97,13 +104,18 @@ class ViewController: UIViewController {
     private func startLoader() {
         loader.startAnimating()
         getTextButton.isEnabled = false
-        startScanningButton.isEnabled = false
+        uploadImagesButton.isEnabled = false
     }
 
     private func stopLoader() {
         loader.stopAnimating()
         getTextButton.isEnabled = true
-        startScanningButton.isEnabled = true
+        uploadImagesButton.isEnabled = true
+    }
+
+    private func reset() {
+        recognizedTexts = []
+        images = []
     }
 }
 
@@ -120,7 +132,7 @@ extension ViewController: PHPickerViewControllerDelegate {
                 fileHelper.removeFile()
                 getTextButton.isHidden = false
             }
-            
+
             stopLoader()
         }
 
@@ -139,5 +151,34 @@ extension ViewController: PHPickerViewControllerDelegate {
                 continuation.resume(returning: image)
             }
         })
+    }
+}
+
+extension ViewController {
+    private func createTextRecognitionRequest() {
+        textRecognitionRequest = VNRecognizeTextRequest { [weak self] (request, error) in
+            // Get the recognized text
+            guard let observations = request.results as? [VNRecognizedTextObservation] else {
+                self?.recognitionGroup.leave()
+                return
+            }
+            let text = observations.compactMap({ $0.topCandidates(1).first?.string }).joined(separator: " ")
+            self?.recognizedTexts.append(text)
+            self?.recognitionGroup.leave()
+        }
+
+        textRecognitionRequest?.recognitionLevel = .accurate
+    }
+
+    private func performRecognitionRequestIfCan(on imageForRecognition: UIImage) {
+        guard let image = imageForRecognition.cgImage, let textRecognitionRequest = textRecognitionRequest else { return }
+        recognitionGroup.enter()
+        // TODO: - синхронизировать порядок сохранения в файл
+        Task {
+            let handler = VNImageRequestHandler(cgImage: image, options: [:])
+            try? handler.perform([textRecognitionRequest])
+        }
+
+        recognitionGroup.notify(queue: .main) { [weak self] in self?.saveTextsToFile() }
     }
 }
