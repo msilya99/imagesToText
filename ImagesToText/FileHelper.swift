@@ -27,7 +27,7 @@ final class FileHelper {
     }
 
     func export(paths: [String] = [AppConstants.fileName]) {
-        guard let topController = RouteHelper.sh.navController?.topViewController else { return }
+        guard let topController = WindowSetupHelper.sh.navController?.topViewController else { return }
         let files = paths.compactMap { [weak self] path in self?.documentsURL?.appendingPathComponent(path) }
         let vc = UIActivityViewController(activityItems: files, applicationActivities: nil)
         vc.isModalInPresentation = true

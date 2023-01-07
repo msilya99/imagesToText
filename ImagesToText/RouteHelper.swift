@@ -1,11 +1,10 @@
 import UIKit
 
-/// Main app router for pushing, presenting, poping, dismissing
-final class RouteHelper: NSObject {
+final class WindowSetupHelper: NSObject {
 
     // MARK: - variables
 
-    static let sh = RouteHelper()
+    static let sh = WindowSetupHelper()
     private(set) var navController: UINavigationController?
 
     // MARK: - init.
@@ -14,9 +13,7 @@ final class RouteHelper: NSObject {
 
     // MARK: - setup app main vc.
     func setup(window: UIWindow) {
-        UIApplication.shared.isIdleTimerDisabled = true
         let navigationController = UINavigationController()
-        navigationController.interactivePopGestureRecognizer?.isEnabled = false
         navigationController.navigationBar.isHidden = true
         navController = navigationController
         let startVC = ViewController()

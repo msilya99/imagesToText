@@ -9,9 +9,11 @@ class ViewController: UIViewController {
 
     private let fileHelper: FileHelper = .init()
     private let defaults = UserDefaults.standard
+    private let recognisedTexts: IsolatedArray<String> = .init()
     private var images: [UIImage] = []
     private var textRecognitionRequest: VNRecognizeTextRequest?
-    private var recognizedTexts: [String] = []
+
+    // MARK: - gui varaibles.
 
     private lazy var uploadImagesButton: Button = {
         let button = Button(title: "Upload images")
@@ -34,6 +36,8 @@ class ViewController: UIViewController {
         return view
     }()
 
+    // MARK: - lifecycle.
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
@@ -43,6 +47,8 @@ class ViewController: UIViewController {
         makeConstraints()
         createTextRecognitionRequest()
     }
+
+    // MARK: - constraints.
 
     private func makeConstraints() {
         NSLayoutConstraint.activate([
@@ -62,6 +68,8 @@ class ViewController: UIViewController {
         ])
     }
 
+    // MARK: - button actions
+
     @objc private func getTextButtonActtion() {
         startLoader()
         defaults[.isNewImagesUploaded] == false
@@ -78,12 +86,16 @@ class ViewController: UIViewController {
         present(pickerViewController, animated: true)
     }
 
-    @MainActor private func saveTextsToFile() {
+    // MARK: - saving text to file
+
+    private func saveTextsToFile() {
         if defaults[.isNewImagesUploaded] == true {
-            for imageStrings in recognizedTexts {
-                fileHelper.saveTextToFile(textToAdd: imageStrings)
+            Task {
+                for imageStrings in await recognisedTexts.values {
+                    fileHelper.saveTextToFile(textToAdd: imageStrings)
+                }
+                reset()
             }
-            reset()
         }
 
         fileHelper.export()
@@ -107,12 +119,12 @@ class ViewController: UIViewController {
     }
 
     private func reset() {
-        recognizedTexts = []
+        Task { await recognisedTexts.clear() }
         images = []
     }
 }
 
-// Uploading images from picker
+// MARK: - Uploading images from picker.
 extension ViewController: PHPickerViewControllerDelegate {
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         Task {
@@ -148,7 +160,7 @@ extension ViewController: PHPickerViewControllerDelegate {
     }
 }
 
-// Text recognition.
+// MARK: - Text recognition.
 extension ViewController {
     private func createTextRecognitionRequest() {
         textRecognitionRequest = VNRecognizeTextRequest { [weak self] (request, error) in
@@ -158,8 +170,10 @@ extension ViewController {
             }
 
             let text = observations.compactMap({ $0.topCandidates(1).first?.string }).joined(separator: "\n")
-            self?.recognizedTexts.append(text)
-            self?.performRequestsInfNeeded()
+            Task {
+                await self?.recognisedTexts.add(text)
+                self?.performRequestsInfNeeded()
+            }
         }
 
         textRecognitionRequest?.recognitionLevel = .accurate
@@ -167,7 +181,7 @@ extension ViewController {
 
     private func performRecognitionRequestIfCan(on imageForRecognition: UIImage) {
         guard let image = imageForRecognition.cgImage, let textRecognitionRequest = textRecognitionRequest else { return }
-        DispatchQueue.global().sync {
+        Task {
             let handler = VNImageRequestHandler(cgImage: image, options: [:])
             try? handler.perform([textRecognitionRequest])
         }
