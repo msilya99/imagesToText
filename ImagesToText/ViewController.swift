@@ -10,7 +10,7 @@ class ViewController: UIViewController {
     private let fileHelper: FileHelper = .init()
     private let defaults = UserDefaults.standard
     private let recognisedTexts: IsolatedArray<String> = .init()
-    private var images: [UIImage] = []
+    private var images: [CGImage] = []
     private var textRecognitionRequest: VNRecognizeTextRequest?
 
     // MARK: - gui varaibles.
@@ -130,8 +130,9 @@ extension ViewController: PHPickerViewControllerDelegate {
         Task {
             startLoader()
             for result in results {
-                guard let image = try? await getImageFromResult(result) else { continue }
-                images.append(image)
+                guard let image = try? await getImageFromResult(result),
+                      let croppedImage = image.getCroppedForCardGameCGImage() else { continue }
+                images.append(croppedImage)
             }
 
             if !images.isEmpty {
@@ -179,10 +180,10 @@ extension ViewController {
         textRecognitionRequest?.recognitionLevel = .accurate
     }
 
-    private func performRecognitionRequestIfCan(on imageForRecognition: UIImage) {
-        guard let image = imageForRecognition.cgImage, let textRecognitionRequest = textRecognitionRequest else { return }
+    private func performRecognitionRequestIfCan(on imageForRecognition: CGImage) {
+        guard let textRecognitionRequest = textRecognitionRequest else { return }
         Task {
-            let handler = VNImageRequestHandler(cgImage: image, options: [:])
+            let handler = VNImageRequestHandler(cgImage: imageForRecognition, options: [:])
             try? handler.perform([textRecognitionRequest])
         }
     }

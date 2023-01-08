@@ -18,7 +18,7 @@ final class FileHelper {
     private func appendTextToFile(text: String, filePath: URL) {
         guard let file = try? FileHandle(forWritingTo: filePath),
               let text = text.data(using: .utf8),
-              let devider = "\n_________________________________\n \n".data(using: .utf8) else { return }
+              let devider = "\n".data(using: .utf8) else { return }
 
         file.seekToEndOfFile()
         file.write(devider)
