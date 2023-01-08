@@ -10,7 +10,7 @@ class ViewController: UIViewController {
     private let fileHelper: FileHelper = .init()
     private let defaults = UserDefaults.standard
     private let recognisedTexts: IsolatedArray<String> = .init()
-    private var images: [UIImage] = []
+    private var images: [CGImage] = []
     private var textRecognitionRequest: VNRecognizeTextRequest?
 
     // MARK: - gui varaibles.
@@ -145,7 +145,7 @@ extension ViewController: PHPickerViewControllerDelegate {
         dismiss(animated: true, completion: nil)
     }
 
-    private func getImageFromResult(_ result: PHPickerResult) async throws -> UIImage {
+    private func getImageFromResult(_ result: PHPickerResult) async throws -> CGImage? {
         return try await withCheckedThrowingContinuation({ continuation in
             result.itemProvider.loadObject(ofClass: UIImage.self) { (image, error) in
                 guard let image = image as? UIImage else {
@@ -154,7 +154,7 @@ extension ViewController: PHPickerViewControllerDelegate {
                     return
                 }
 
-                continuation.resume(returning: image)
+                continuation.resume(returning: image.cgImage)
             }
         })
     }
@@ -179,8 +179,8 @@ extension ViewController {
         textRecognitionRequest?.recognitionLevel = .accurate
     }
 
-    private func performRecognitionRequestIfCan(on imageForRecognition: UIImage) {
-        guard let image = imageForRecognition.cgImage, let textRecognitionRequest = textRecognitionRequest else { return }
+    private func performRecognitionRequestIfCan(on image: CGImage) {
+        guard let textRecognitionRequest = textRecognitionRequest else { return }
         Task {
             let handler = VNImageRequestHandler(cgImage: image, options: [:])
             try? handler.perform([textRecognitionRequest])
